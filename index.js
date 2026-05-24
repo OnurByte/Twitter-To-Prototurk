@@ -826,7 +826,7 @@ class TwitterToPrototurk {
 
     try {
       // Tiptap JSON formatı (Resimlerin görünmesi için şart)
-      const contentJson = {
+      const doc = {
         type: "doc",
         content: [
           {
@@ -843,10 +843,9 @@ class TwitterToPrototurk {
 
       // Eğer görsel varsa JSON'a da ekle
       if (imageKey) {
-        // Tam URL'yi bulalım (imageKey sadece dosya adı olabilir)
         const fullImageUrl = imageKey.startsWith('http') ? imageKey : `https://cdn.prototurk.com/posts/${postId}/${imageKey}`;
         
-        contentJson.content.push({
+        doc.content.push({
           type: "image",
           attrs: {
             src: fullImageUrl,
@@ -858,8 +857,9 @@ class TwitterToPrototurk {
 
       const payload = {
         post_id: postId,
-        text: randomComment,
-        content: JSON.stringify(contentJson), // Tiptap JSON string olmalı bazen
+        text: randomComment,    // UI'da görünecek düz metin
+        content: randomComment, // Fallback düz metin
+        contentJson: doc,       // Zengin içerik (Resimler buradan okunur)
         parent_id: 0
       };
 
@@ -914,13 +914,29 @@ class TwitterToPrototurk {
     ];
 
     const randomReply = replies[Math.floor(Math.random() * replies.length)];
-try {
-  const payload = {
-    post_id: postId,
-    text: randomReply,
-    content: randomReply,
-    parent_id: commentId
-  };
+    try {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: randomReply
+              }
+            ]
+          }
+        ]
+      };
+
+      const payload = {
+        post_id: postId,
+        text: randomReply,
+        content: randomReply,
+        contentJson: doc,
+        parent_id: commentId
+      };
   await axios.post(
 
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
