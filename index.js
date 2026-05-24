@@ -505,19 +505,27 @@ class TwitterToPrototurk {
     };
   }
 
-  async uploadImageToPrototurk(account, imageBuffer, contentType) {
+  async uploadImageToPrototurk(account, imageBuffer, contentType, retryCount = 0) {
     try {
+      // 5MB limit kontrolü
+      if (imageBuffer.length > 5 * 1024 * 1024) {
+        console.log(`   ⚠️  Görsel çok büyük (${(imageBuffer.length / 1024 / 1024).toFixed(2)} MB), atlanıyor.`);
+        return null;
+      }
+
       const FormData = (await import('form-data')).default;
       const form = new FormData();
       
       // Dosya uzantısını content-type'dan belirle
       const ext = contentType.includes('png') ? 'png' : 'jpg';
+      const filename = `img_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+      
       form.append('file', imageBuffer, {
-        filename: `image.${ext}`,
+        filename: filename,
         contentType: contentType
       });
       
-      console.log(`   📤 Prototurk'e yükleniyor... (${imageBuffer.length} bytes)`);
+      console.log(`   📤 Prototurk'e yükleniyor... (${(imageBuffer.length / 1024).toFixed(1)} KB) - Dosya: ${filename}`);
       
       const response = await axios.post(
         `${this.prototurkBaseUrl}/api/uploads`,
@@ -528,15 +536,15 @@ class TwitterToPrototurk {
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
             'Origin': this.prototurkBaseUrl,
-            'Referer': `${this.prototurkBaseUrl}/`,
+            'Referer': `${this.prototurkBaseUrl}/${account.prototurkUsername}`,
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
           },
-          timeout: 30000
+          timeout: 45000 // Timeout süresini artır
         }
       );
       
-      if (response.data && (response.data.url || response.data.path)) {
-        const uploadedUrl = response.data.url || response.data.path;
+      if (response.data && (response.data.url || response.data.path || response.data.key)) {
+        const uploadedUrl = response.data.url || response.data.path || response.data.key;
         console.log(`   ✅ Görsel yüklendi: ${uploadedUrl}`);
         return uploadedUrl;
       } else {
@@ -545,10 +553,19 @@ class TwitterToPrototurk {
       }
       
     } catch (error) {
-      console.error('⚠️  Görsel yükleme hatası:', error.response?.data || error.message);
-      if (error.response) {
-        console.error(`   Status: ${error.response.status}`);
+      const status = error.response?.status;
+      const errorData = error.response?.data;
+      
+      console.error(`   ❌ Görsel yükleme hatası (${status || 'Network'}):`, errorData || error.message);
+      
+      // 500 veya timeout durumunda tekrar dene (max 2 retry)
+      if ((status === 500 || !status) && retryCount < 2) {
+        const delay = (retryCount + 1) * 3000;
+        console.log(`   🔄 ${delay/1000} saniye sonra tekrar deneniyor... (Deneme ${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.uploadImageToPrototurk(account, imageBuffer, contentType, retryCount + 1);
       }
+      
       return null;
     }
   }
