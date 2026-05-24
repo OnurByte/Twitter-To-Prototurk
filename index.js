@@ -705,8 +705,8 @@ class TwitterToPrototurk {
   }
 
   async getMeme() {
-    // Rastgele kaynak seç: %70 Meme API, %30 Türksigara (Veya tam tersi)
-    const useTurksigara = Math.random() < 0.4;
+    // Rastgele kaynak seç: %50 Meme API, %50 Türksigara
+    const useTurksigara = Math.random() < 0.5;
 
     if (useTurksigara) {
       try {
@@ -809,8 +809,8 @@ class TwitterToPrototurk {
     const randomComment = comments[Math.floor(Math.random() * comments.length)];
     let imageKey = null;
 
-    // %30 ihtimalle meme ekle
-    if (Math.random() < 0.3) {
+    // %70 ihtimalle meme ekle (daha fazla görsel)
+    if (Math.random() < 0.7) {
       const meme = await this.getMeme();
       if (meme) {
         const uploadedUrl = await this.uploadImageToPrototurk(account, meme.buffer, meme.contentType);
