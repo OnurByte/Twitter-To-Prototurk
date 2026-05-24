@@ -760,7 +760,8 @@ class TwitterToPrototurk {
     try {
       const payload = {
         post_id: postId,
-        comment: randomComment,
+        text: randomComment,
+        content: randomComment,
         parent_id: 0
       };
 
@@ -818,10 +819,10 @@ class TwitterToPrototurk {
 try {
   const payload = {
     post_id: postId,
-    comment: randomReply,
+    text: randomReply,
+    content: randomReply,
     parent_id: commentId
   };
-
   await axios.post(
 
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
