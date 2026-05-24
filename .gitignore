@@ -2,3 +2,5 @@ node_modules/
 .env
 last_processed.json
 *.log
+accounts.json
+like-report-*.json

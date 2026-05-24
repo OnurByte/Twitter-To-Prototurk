@@ -58,33 +58,65 @@ class TwitterToPrototurk {
   }
 
   async fetchRSS(username) {
-    // Farklı Nitter instance'ları
-    const nitterInstances = [
-      'https://nitter.net',
-      'https://nitter.poast.org',
-      'https://nitter.privacydev.net',
-      'https://nitter.1d4.us'
+    // Sadece çalışan RSS kaynakları (2025-2026 güncel)
+    const rssInstances = [
+      { url: `https://nitter.perennialte.ch/${username}/rss`, base: 'https://nitter.perennialte.ch', name: 'nitter.perennialte.ch' },
+      { url: `https://nitter.privacydev.net/${username}/rss`, base: 'https://nitter.privacydev.net', name: 'nitter.privacydev.net' },
+      { url: `https://nitter.poast.org/${username}/rss`, base: 'https://nitter.poast.org', name: 'nitter.poast.org' },
+      { url: `https://xcancel.com/${username}/rss`, base: 'https://xcancel.com', name: 'xcancel.com' },
+      { url: `https://nitter.net/${username}/rss`, base: 'https://nitter.net', name: 'nitter.net' }
     ];
     
-    for (const instance of nitterInstances) {
-      const rssUrl = `${instance}/${username}/rss`;
-      
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0',
+      'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    };
+
+    for (const instance of rssInstances) {
       try {
-        console.log(`📥 RSS çekiliyor: ${rssUrl}`);
-        const feed = await this.parser.parseURL(rssUrl);
+        console.log(`📡 RSS deneniyor: ${instance.name}...`);
         
-        if (feed.items && feed.items.length > 0) {
-          console.log(`✅ ${feed.items.length} tweet bulundu`);
-          return feed.items;
+        // Önce axios ile çekelim (headers kontrolü için)
+        const response = await axios.get(instance.url, {
+          headers: headers,
+          timeout: 15000,
+          validateStatus: (status) => status === 200
+        });
+
+        if (response.data) {
+          // Whitelist uyarısı kontrolü (ham veri üzerinde)
+          if (response.data.includes('not yet whitelisted')) {
+            console.log(`⚠️  ${instance.name} whitelist uyarısı veriyor, geçiliyor...`);
+            continue;
+          }
+
+          const feed = await this.parser.parseString(response.data);
+          
+          if (feed.items && feed.items.length > 0) {
+            // Item'lar içinde de kontrol et (bazıları tek tek koyuyor)
+            const realItems = feed.items.filter(item => {
+              const content = (item.content || item.description || item.title || '').toLowerCase();
+              return !content.includes('not yet whitelisted') && !content.includes('rss reader not yet');
+            });
+
+            if (realItems.length > 0) {
+              console.log(`✅ ${realItems.length} tweet bulundu (${instance.name})`);
+              return { items: realItems, baseUrl: instance.base };
+            } else {
+              console.log(`⚠️  ${instance.name} sadece whitelist mesajları içeriyor, geçiliyor...`);
+            }
+          }
         }
       } catch (error) {
-        console.log(`⚠️  ${instance} RSS başarısız, sonrakini deniyorum...`);
+        console.log(`⚠️  ${instance.name} hatası: ${error.message}`);
         continue;
       }
     }
     
-    console.error('❌ Tüm Nitter instance\'ları başarısız oldu');
-    return [];
+    return { items: [], baseUrl: null };
   }
 
   async postToPrototurk(account, content, images = []) {
@@ -159,7 +191,7 @@ class TwitterToPrototurk {
     }
   }
 
-  extractImagesFromContent(htmlContent) {
+  extractImagesFromContent(htmlContent, baseUrl = 'https://nitter.net') {
     try {
       const $ = cheerio.load(htmlContent);
       const imageUrls = [];
@@ -168,7 +200,7 @@ class TwitterToPrototurk {
         const src = $(img).attr('src');
         if (src && !src.includes('emoji') && !src.includes('icon')) {
           // Nitter'daki görselleri tam URL'e çevir
-          const fullUrl = src.startsWith('http') ? src : `https://nitter.net${src}`;
+          const fullUrl = src.startsWith('http') ? src : `${baseUrl}${src}`;
           imageUrls.push(fullUrl);
         }
       });
@@ -182,29 +214,84 @@ class TwitterToPrototurk {
 
   async downloadImage(url) {
     try {
-      console.log(`   📥 Görsel indiriliyor: ${url}`);
-      const response = await axios.get(url, {
-        responseType: 'arraybuffer',
-        timeout: 15000, // 15 saniye timeout
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive'
-        },
-        maxRedirects: 5
-      });
+      let targetUrls = [url];
       
-      console.log(`   ✅ Görsel indirildi (${response.data.length} bytes, ${response.headers['content-type']})`);
-      
-      return {
-        buffer: response.data,
-        contentType: response.headers['content-type'] || 'image/jpeg'
+      // Nitter URL'ini orijinal Twitter URL'ine çevirmeye çalış
+      if (url.includes('/pic/')) {
+        try {
+          const encodedPath = url.split('/pic/')[1];
+          const decodedPath = decodeURIComponent(encodedPath);
+          
+          if (decodedPath.startsWith('media/')) {
+            // Normal tweet görseli: media/xxxx.jpg -> pbs.twimg.com/media/xxxx.jpg
+            targetUrls.unshift(`https://pbs.twimg.com/${decodedPath}`);
+          } else if (decodedPath.startsWith('card_img/')) {
+            // Card görseli: card_img/xxxx/yyyy?format=jpg -> pbs.twimg.com/card_img/xxxx/yyyy?format=jpg
+            targetUrls.unshift(`https://pbs.twimg.com/${decodedPath}`);
+          }
+        } catch (e) {
+          // Çözme hatası olursa orijinal URL ile devam et
+        }
+      }
+
+      // Nitter instance'ları (fallback için)
+      const downloadInstances = [
+        'nitter.projectsegfau.lt',
+        'nitter.perennialte.ch',
+        'nitter.privacydev.net',
+        'nitter.poast.org',
+        'xcancel.com'
+      ];
+
+      // Eğer URL bir nitter instance'ı içeriyorsa ve henüz eklenmemişse, diğerlerini de ekle
+      const currentInstance = downloadInstances.find(inst => url.includes(inst));
+      if (currentInstance) {
+        downloadInstances.forEach(inst => {
+          const alternativeUrl = url.replace(currentInstance, inst);
+          if (!targetUrls.includes(alternativeUrl)) {
+            targetUrls.push(alternativeUrl);
+          }
+        });
+      }
+
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Referer': 'https://twitter.com/'
       };
+
+      for (const targetUrl of targetUrls) {
+        try {
+          const domain = targetUrl.split('/')[2];
+          console.log(`   📥 Görsel indiriliyor: ${domain}`);
+          
+          const response = await axios.get(targetUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            headers: headers,
+            maxRedirects: 5
+          });
+          
+          if (response.data && response.data.length > 500) { // Çok küçükse (hata sayfası vs) geç
+            console.log(`   ✅ Görsel indirildi (${response.data.length} bytes, ${response.headers['content-type']})`);
+            return {
+              buffer: response.data,
+              contentType: response.headers['content-type'] || 'image/jpeg'
+            };
+          }
+        } catch (error) {
+          // Sessizce bir sonrakini dene
+          continue;
+        }
+      }
     } catch (error) {
       console.error('⚠️  Görsel indirme hatası:', url, error.message);
-      return null;
     }
+    
+    return null;
   }
 
   async updatePrototurkProfile(account, profileData) {
@@ -324,127 +411,97 @@ class TwitterToPrototurk {
   }
 
   async getTwitterProfileInfo(username) {
-    // Farklı Nitter instance'ları
-    const nitterInstances = [
-      'https://nitter.net',
-      'https://nitter.poast.org',
-      'https://nitter.privacydev.net',
-      'https://nitter.1d4.us'
+    // Sadece çalışan instance'lar
+    const instances = [
+      { base: 'https://nitter.perennialte.ch', name: 'nitter.perennialte.ch' },
+      { base: 'https://xcancel.com', name: 'xcancel.com' },
+      { base: 'https://nitter.projectsegfau.lt', name: 'nitter.projectsegfau.lt' }
     ];
     
-    for (const instance of nitterInstances) {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5'
+    };
+    
+    for (const instance of instances) {
       try {
-        console.log(`🔍 ${username} profil bilgileri çekiliyor (${instance})...`);
+        console.log(`📡 Profil bilgisi deneniyor: ${instance.name}...`);
         
-        // RSS feed'i çek
-        const feed = await this.parser.parseURL(`${instance}/${username}/rss`);
-        
-        if (!feed || !feed.title) {
-          continue;
-        }
-        
-        // RSS'den profil bilgilerini çıkar
-        // Title formatı: "Display Name / @username"
-        let displayName = username; // Varsayılan
-        if (feed.title.includes(' / @')) {
-          displayName = feed.title.split(' / @')[0].trim();
-        }
-        
-        // Avatar URL - RSS feed.image.url'den
-        let avatarUrl = null;
-        if (feed.image && feed.image.url) {
-          // Nitter proxy URL'ini gerçek Twitter URL'ine çevir
-          // Örnek: https://nitter.net/pic/pbs.twimg.com%2Fprofile_images%2F...
-          avatarUrl = feed.image.url;
+        // Önce RSS'den deneyelim (daha hızlı)
+        const rssUrl = `${instance.base}/${username}/rss`;
+        const rssResponse = await axios.get(rssUrl, {
+          headers: {
+            ...headers,
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+          },
+          timeout: 15000
+        });
+
+        if (rssResponse.data) {
+          const feed = await this.parser.parseString(rssResponse.data);
           
-          // URL decode et ve gerçek Twitter URL'ini oluştur
-          if (avatarUrl.includes('nitter.net/pic/')) {
-            const encodedPath = avatarUrl.split('nitter.net/pic/')[1];
-            const decodedPath = decodeURIComponent(encodedPath);
-            // Eğer decode edilmiş path zaten https:// ile başlıyorsa, olduğu gibi kullan
-            avatarUrl = decodedPath.startsWith('http') ? decodedPath : `https://${decodedPath}`;
-            console.log(`   Avatar URL decode edildi: ${avatarUrl}`);
+          if (feed && feed.title) {
+            // RSS'den profil bilgilerini çıkar
+            let displayName = username;
+            if (feed.title.includes(' / @')) {
+              displayName = feed.title.split(' / @')[0].trim();
+            }
+            
+            // Avatar URL
+            let avatarUrl = null;
+            if (feed.image && feed.image.url) {
+              avatarUrl = feed.image.url;
+              // Nitter proxy linkini çöz
+              if (avatarUrl.includes('/pic/')) {
+                const encodedPath = avatarUrl.split('/pic/')[1];
+                const decodedPath = decodeURIComponent(encodedPath);
+                // pbs.twimg.com/profile_images/xxxx/yyyy_normal.jpg -> original
+                avatarUrl = decodedPath.startsWith('http') ? decodedPath : `https://${decodedPath}`;
+              }
+              
+              // Orijinal Twitter avatar ise yüksek kaliteye çek (400x400)
+              if (avatarUrl.includes('pbs.twimg.com/profile_images')) {
+                avatarUrl = avatarUrl.replace('_normal.', '_400x400.').replace('_bigger.', '_400x400.');
+              }
+            }
+            
+            // Bio için profil sayfasını çek (RSS'de bio yok)
+            let bio = '';
+            try {
+              const profileResponse = await axios.get(`${instance.base}/${username}`, {
+                headers: headers,
+                timeout: 15000
+              });
+              
+              const $ = cheerio.load(profileResponse.data);
+              bio = $('.profile-bio p').text().trim() ||
+                    $('div.profile-bio').text().trim() ||
+                    $('.bio').text().trim();
+            } catch (e) {
+              // Bio alınamazsa sorun değil
+            }
+
+            console.log(`✅ Profil bilgisi alındı (${instance.name})`);
+            return {
+              displayName,
+              avatar: avatarUrl,
+              bio: bio || `resmi ProtoTürk ${username} hesabı`,
+              website: `https://twitter.com/${username}`
+            };
           }
         }
-        
-        // Bio için HTML sayfasını parse et (Cheerio ile)
-        let bio = '';
-        try {
-          const response = await axios.get(`${instance}/${username}`, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-              'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Connection': 'keep-alive',
-              'Upgrade-Insecure-Requests': '1',
-              'Sec-Fetch-Dest': 'document',
-              'Sec-Fetch-Mode': 'navigate',
-              'Sec-Fetch-Site': 'none',
-              'Cache-Control': 'max-age=0'
-            },
-            timeout: 10000
-          });
-          
-          const $ = cheerio.load(response.data);
-          
-          // Bio bilgisini çek - div.profile-bio içindeki p tag'inden
-          const bioElement = $('.profile-bio p');
-          if (bioElement.length > 0) {
-            bio = bioElement.text().trim();
-          }
-          
-          // Alternatif: doğrudan div.profile-bio
-          if (!bio) {
-            bio = $('div.profile-bio').text().trim();
-          }
-          
-          // Diğer alternatifler
-          if (!bio) {
-            bio = $('.profile-card-bio').text().trim();
-          }
-          
-          if (!bio) {
-            bio = $('.profile-card-extra .profile-bio p').text().trim();
-          }
-          
-        } catch (error) {
-          // Bio alınamazsa boş bırak
-          console.log(`⚠️  Bio çekilemedi: ${error.message}`);
-        }
-        
-        // Bio bulunamadıysa, displayName'den anlamlı bir bio oluştur
-        if (!bio) {
-          bio = `${displayName} resmi ProtoTürk hesabı`;
-        }
-        
-        console.log(`✅ Profil bilgileri alındı:`);
-        console.log(`   İsim: ${displayName}`);
-        console.log(`   Bio: ${bio}`);
-        console.log(`   Avatar: ${avatarUrl ? 'Var' : 'Yok'}`);
-        
-        return {
-          username: username,
-          displayName: displayName,
-          bio: bio,
-          website: `https://twitter.com/${username}`,
-          avatar: avatarUrl
-        };
-        
       } catch (error) {
-        console.log(`⚠️  ${instance} başarısız, sonrakini deniyorum...`);
+        console.log(`⚠️  ${instance.name} profil hatası: ${error.message}`);
         continue;
       }
     }
     
-    // Hiçbir instance çalışmadı
-    console.error(`❌ Tüm Nitter instance'ları başarısız oldu`);
     return {
-      username: username,
       displayName: username,
-      bio: `${username} resmi ProtoTürk hesabı`,
-      website: `https://twitter.com/${username}`,
-      avatar: null
+      avatar: null,
+      bio: `resmi ProtoTürk ${username} hesabı`,
+      website: `https://twitter.com/${username}`
     };
   }
 
@@ -460,6 +517,8 @@ class TwitterToPrototurk {
         contentType: contentType
       });
       
+      console.log(`   📤 Prototurk'e yükleniyor... (${imageBuffer.length} bytes)`);
+      
       const response = await axios.post(
         `${this.prototurkBaseUrl}/api/uploads`,
         form,
@@ -468,15 +527,28 @@ class TwitterToPrototurk {
             ...form.getHeaders(),
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
-          }
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          },
+          timeout: 30000
         }
       );
       
-      console.log(`✅ Görsel yüklendi:`, response.data);
-      return response.data.url || response.data.path;
+      if (response.data && (response.data.url || response.data.path)) {
+        const uploadedUrl = response.data.url || response.data.path;
+        console.log(`   ✅ Görsel yüklendi: ${uploadedUrl}`);
+        return uploadedUrl;
+      } else {
+        console.log(`   ⚠️  Görsel yüklendi ama URL alınamadı:`, response.data);
+        return null;
+      }
       
     } catch (error) {
       console.error('⚠️  Görsel yükleme hatası:', error.response?.data || error.message);
+      if (error.response) {
+        console.error(`   Status: ${error.response.status}`);
+      }
       return null;
     }
   }
@@ -496,9 +568,16 @@ class TwitterToPrototurk {
     return content;
   }
 
+  getTweetId(link) {
+    if (!link) return null;
+    // URL: .../status/123456789#m -> 123456789
+    const match = link.match(/\/status\/(\d+)/);
+    return match ? match[1] : link;
+  }
+
   async processAccountTweets(account) {
     const username = account.twitterUsername;
-    const items = await this.fetchRSS(username);
+    const { items, baseUrl } = await this.fetchRSS(username);
 
     if (items.length === 0) {
       console.log(`ℹ️  ${username}: RSS'de içerik bulunamadı.`);
@@ -507,11 +586,14 @@ class TwitterToPrototurk {
 
     const lastProcessedData = await this.getLastProcessedLink(username);
     const lastProcessedLink = lastProcessedData?.lastLink;
+    const lastProcessedId = this.getTweetId(lastProcessedLink);
+    
     const newItems = [];
 
     // Yeni tweet'leri bul
     for (const item of items) {
-      if (lastProcessedLink && item.link === lastProcessedLink) {
+      const currentId = this.getTweetId(item.link);
+      if (lastProcessedId && currentId === lastProcessedId) {
         break; // Daha önce işlenmiş tweet'e ulaştık
       }
       newItems.push(item);
@@ -537,7 +619,7 @@ class TwitterToPrototurk {
         batch.map(async (item) => {
           try {
             const content = this.cleanTweetContent(item.contentSnippet || item.description || item.title);
-            const images = this.extractImagesFromContent(item.content || item.description || '');
+            const images = this.extractImagesFromContent(item.content || item.description || '', baseUrl);
             
             console.log(`\n📝 ${username}: ${content.substring(0, 50)}...`);
             console.log(`🔗 Link: ${item.link}`);
@@ -561,9 +643,251 @@ class TwitterToPrototurk {
     }
   }
 
+  async likePost(account, postId) {
+    try {
+      await axios.post(
+        `${this.prototurkBaseUrl}/api/posts/${postId}/like`,
+        {},
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          }
+        }
+      );
+      return true;
+    } catch (error) {
+      console.log(`      ❌ Beğeni hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      return false;
+    }
+  }
+
+  async bookmarkPost(account, postId) {
+    try {
+      await axios.post(
+        `${this.prototurkBaseUrl}/api/posts/${postId}/bookmark`,
+        {},
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          }
+        }
+      );
+      return true;
+    } catch (error) {
+      console.log(`      ❌ Kaydetme hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      return false;
+    }
+  }
+
+  async commentOnPost(account, postId) {
+    const comments = [
+      "Harika bir paylaşım olmuş, teşekkürler!",
+      "Çok faydalı bilgiler, elinize sağlık.",
+      "Bunu öğrendiğim iyi oldu, sağ olun.",
+      "Gerçekten çok ilginç bir konu.",
+      "Katılıyorum, çok doğru bir tespit.",
+      "Vay be, bunu bilmiyordum.",
+      "Güzel içerik, takibe aldım.",
+      "Emeğinize sağlık, devamını bekliyoruz.",
+      "Çok açıklayıcı olmuş, teşekkürler.",
+      "Harikasınız, başarılar dilerim.",
+      "Tam da bunu arıyordum, süper!",
+      "Çok kaliteli bir içerik olmuş.",
+      "Teşekkürler, çok yardımcı oldu.",
+      "Kesinlikle öyle, çok iyi.",
+      "Bilgilendirme için teşekkürler.",
+      "Süper paylaşım, ellerinize sağlık.",
+      "Bunu mutlaka deneyeceğim.",
+      "Daha fazla böyle içerik gelmeli.",
+      "Çok yerinde bir paylaşım.",
+      "İlgiyle takip ediyorum, harika.",
+      "Çok başarılı, tebrikler.",
+      "Mükemmel bir anlatım olmuş.",
+      "İçerik kalitesi çok yüksek.",
+      "Elinize sağlık kanka, çok iyi.",
+      "Güzel noktaya değinmişsiniz.",
+      "Bilmiyordum, sayenizde öğrendim.",
+      "Süper, çok teşekkürler.",
+      "Efsane olmuş, devamı gelsin.",
+      "Çok keyifli bir yazı olmuş.",
+      "Yararlı bir paylaşım, sağ olun."
+    ];
+
+    const randomComment = comments[Math.floor(Math.random() * comments.length)];
+
+    try {
+      await axios.post(
+        `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
+        {
+          comment: randomComment
+        },
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return { success: true, comment: randomComment };
+    } catch (error) {
+      console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      return { success: false };
+    }
+  }
+
+  async replyToComment(account, postId, commentId) {
+    const replies = [
+      "Kesinlikle katılıyorum.",
+      "Ben de aynı fikirdeyim.",
+      "Çok haklısın kanka.",
+      "Aynen öyle.",
+      "Bence de çok doğru.",
+      "Katılmamak elde değil.",
+      "Doğru söze ne denir.",
+      "Kesinlikle!",
+      "Ben de öyle düşünüyorum.",
+      "Çok yerinde bir yorum olmuş."
+    ];
+
+    const randomReply = replies[Math.floor(Math.random() * replies.length)];
+
+    try {
+      await axios.post(
+        `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
+        {
+          comment: randomReply,
+          parent_id: commentId
+        },
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return { success: true, reply: randomReply };
+    } catch (error) {
+      console.log(`      ❌ Yanıt hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      return { success: false };
+    }
+  }
+
+  async performRandomInteractions() {
+    try {
+      const accounts = await this.accountManager.getActiveAccounts();
+      if (accounts.length === 0) return;
+
+      console.log('\n🌟 Rastgele etkileşimler başlatılıyor...');
+
+      // Feed'den son postları çek (Tarayıcı gibi davran)
+      const feedResponse = await axios.get(`${this.prototurkBaseUrl}/api/feed?tab=new&limit=20`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+          'Origin': this.prototurkBaseUrl,
+          'Referer': `${this.prototurkBaseUrl}/`
+        }
+      });
+      
+      const posts = feedResponse.data.items || [];
+      console.log(`   🔎 Akışta ${posts.length} post bulundu.`);
+
+      if (posts.length === 0) return;
+
+      // Hesapları karıştır
+      const shuffledAccounts = [...accounts].sort(() => 0.5 - Math.random()).slice(0, 40); // Her turda max 40 hesap etkileşim yapsın (daha fazla hesap)
+
+      for (const account of shuffledAccounts) {
+        // Her hesap için rastgele 5-10 post seç (daha fazla post)
+        const targetCount = Math.floor(Math.random() * 6) + 5;
+        const shuffledPosts = [...posts].sort(() => 0.5 - Math.random()).slice(0, targetCount);
+
+        for (const post of shuffledPosts) {
+          // Kendi postunu veya çok eski postu beğenme
+          if (post.author?.username === account.prototurkUsername) continue;
+
+          // %80 ihtimalle beğen (çok yüksek etkileşim)
+          if (Math.random() < 0.8) {
+            const success = await this.likePost(account, post.id);
+            if (success) console.log(`   ❤️  @${account.twitterUsername} -> @${post.author?.username} postunu beğendi`);
+          }
+
+          // %40 ihtimalle kaydet
+          if (Math.random() < 0.4) {
+            const success = await this.bookmarkPost(account, post.id);
+            if (success) console.log(`   🔖 @${account.twitterUsername} -> @${post.author?.username} postunu kaydetti`);
+          }
+
+          // %20 ihtimalle takip et
+          if (Math.random() < 0.2) {
+            const res = await this.accountManager.followUser(post.author?.username, account);
+            if (res.success) {
+              console.log(`   👤 @${account.twitterUsername} -> @${post.author?.username} kullanıcısını takip etti`);
+            }
+          }
+
+          // %10 ihtimalle yorum yap (daha nadir ve değerli)
+          if (Math.random() < 0.1) {
+            const res = await this.commentOnPost(account, post.id);
+            if (res.success) {
+              console.log(`   💬 @${account.twitterUsername} -> @${post.author?.username} postuna yorum yaptı: "${res.comment}"`);
+            }
+          }
+
+          // %5 ihtimalle var olan bir yoruma yanıt ver
+          if (Math.random() < 0.05) {
+            try {
+              // Postun yorumlarını çek
+              const postResponse = await axios.get(`${this.prototurkBaseUrl}/api/posts/${post.id}/comments`, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0' }
+              });
+              const comments = postResponse.data.items || [];
+              if (comments.length > 0) {
+                // Kendi yorumu olmayan rastgele bir yorum seç
+                const targetComment = comments
+                  .filter(c => c.author?.username !== account.prototurkUsername)
+                  .sort(() => 0.5 - Math.random())[0];
+                
+                if (targetComment) {
+                  const replyRes = await this.replyToComment(account, post.id, targetComment.id);
+                  if (replyRes.success) {
+                    console.log(`   🗨️  @${account.twitterUsername} -> @${targetComment.author?.username} kullanıcısının yorumuna yanıt verdi: "${replyRes.reply}"`);
+                  }
+                }
+              }
+            } catch (e) {
+              // Yorum çekilemediyse geç
+            }
+          }
+
+          // Çok hızlı gitmesin (API limitleri için)
+
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+    } catch (error) {
+      console.error('⚠️  Etkileşim hatası:', error.message);
+    }
+  }
+
   async processNewTweets() {
     const accounts = await this.accountManager.getActiveAccounts();
-    
+
     if (accounts.length === 0) {
       console.log('⚠️  Aktif hesap bulunamadı!');
       return;
@@ -573,11 +897,11 @@ class TwitterToPrototurk {
 
     // Paralel işleme için Promise.all kullan (max 10 hesap aynı anda)
     const batchSize = 10;
-    
+
     for (let i = 0; i < accounts.length; i += batchSize) {
       const batch = accounts.slice(i, i + batchSize);
       console.log(`\n🔄 Batch ${Math.floor(i / batchSize) + 1}: ${batch.length} hesap paralel işleniyor...\n`);
-      
+
       await Promise.all(
         batch.map(async (account) => {
           try {
@@ -587,42 +911,86 @@ class TwitterToPrototurk {
           }
         })
       );
-      
+
       // Batch'ler arası kısa bekleme
       if (i + batchSize < accounts.length) {
         console.log('\n⏳ Sonraki batch için 3 saniye bekleniyor...\n');
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
-    
+
     console.log('\n✅ Tüm hesaplar işlendi!\n');
+
+    // Rastgele etkileşimleri tetikle
+    await this.performRandomInteractions();
+
+    // Otomatik botlar arası takipleşme
+    await this.autoMutualFollow();
+  }
+
+  async autoMutualFollow() {
+    try {
+      const activeAccounts = await this.accountManager.getActiveAccounts();
+      if (activeAccounts.length < 2) return;
+
+      console.log(`\n👥 Botlar arası otomatik takipleşme kontrol ediliyor...`);
+
+      // Her turda hesapların %10'u rastgele 1-2 kişiyi takip etsin (dozunda olsun)
+      const luckyAccounts = activeAccounts
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.max(1, Math.floor(activeAccounts.length * 0.1)));
+
+      for (const account of luckyAccounts) {
+        const username = account.prototurkUsername || account.twitterUsername;
+
+        // Takip edilecek kişi sayısı (1-2)
+        const followCount = Math.floor(Math.random() * 2) + 1;
+
+        const others = activeAccounts
+          .filter(a => (a.prototurkUsername || a.twitterUsername) !== username)
+          .sort(() => Math.random() - 0.5)
+          .slice(0, followCount);
+
+        for (const target of others) {
+          const targetUsername = target.prototurkUsername || target.twitterUsername;
+          const res = await this.accountManager.followUser(targetUsername, account);
+          if (res.success) {
+            console.log(`   👤 @${username} -> @${targetUsername} kullanıcısını takip etti`);
+          }
+          // Kısa bekleme
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    } catch (error) {
+      console.error('⚠️  Otomatik takipleşme hatası:', error.message);
+    }
   }
 
   async start() {
+
     console.log('🚀 Twitter (RSS) -> Prototurk çoklu hesap aktarımı başlatıldı\n');
     
-    // İlk çalıştırma - profil senkronizasyonu
-    console.log('🔄 PROFIL SENKRONİZASYONU\n');
-    console.log('Tüm hesapların profil bilgileri Twitter\'dan çekilip Prototurk\'e aktarılacak.\n');
-    await this.syncAllProfiles();
+    // Profil senkronizasyonunu atla - Nitter instance'ları stabil değil
+    console.log('ℹ️  Profil senkronizasyonu devre dışı (Nitter instance sorunları)\n');
+    console.log('💡 Profilleri manuel olarak güncellemek için: bun run sync\n');
     
-    // Tweet'leri çek
-    await this.processNewTweets();
+    console.log('🔥 Kesintisiz döngü başlatıldı. 5 dk mola yok!\n');
 
-    // Periyodik kontrol
-    const intervalMinutes = parseInt(process.env.CHECK_INTERVAL_MINUTES) || 5;
-    console.log(`\n⏰ ${intervalMinutes} dakikada bir kontrol edilecek...\n`);
-    
-    setInterval(async () => {
-      console.log(`\n⏰ ${new Date().toLocaleString('tr-TR')} - Kontrol ediliyor...`);
-      await this.processNewTweets();
-    }, intervalMinutes * 60 * 1000);
-    
-    // Her 1 saatte bir profil senkronizasyonu
-    setInterval(async () => {
-      console.log(`\n🔄 ${new Date().toLocaleString('tr-TR')} - Profil senkronizasyonu...`);
-      await this.syncAllProfiles();
-    }, 60 * 60 * 1000); // 1 saat
+    // Sonsuz döngü (while true)
+    while (true) {
+      try {
+        console.log(`\n⏰ ${new Date().toLocaleString('tr-TR')} - Yeni tur başlatılıyor...`);
+        await this.processNewTweets();
+        
+        // Bir tur bittikten sonra çok kısa bir nefes al (sistem kaynakları için 1 saniye)
+        console.log('\n✨ Tur tamamlandı. Hiç beklemeden yeni tura geçiliyor...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error('❌ Ana döngüde hata:', error.message);
+        // Hata durumunda 5 saniye bekle ki sürekli hata verip sistemi kitlemesin
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
   }
 
   async syncAllProfiles() {
@@ -683,7 +1051,9 @@ class TwitterToPrototurk {
 }
 
 // Başlat
-const bot = new TwitterToPrototurk();
-bot.start().catch(console.error);
+if (import.meta.main) {
+  const bot = new TwitterToPrototurk();
+  bot.start().catch(console.error);
+}
 
 export default TwitterToPrototurk;

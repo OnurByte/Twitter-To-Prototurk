@@ -11,7 +11,9 @@
     "test": "bun run test-single.js",
     "setup": "bun run auto-setup.js",
     "sync": "bun run sync-profiles.js",
-    "like": "bun run bulk-like.js"
+    "like": "bun run bulk-like.js",
+    "follow": "bun run bulk-follow.js",
+    "fix": "bun run fix-missing-accounts.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

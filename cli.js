@@ -22,7 +22,8 @@ async function main() {
   console.log('6. TÜM HESAPLARI EKLE (tüm kategoriler)');
   console.log('7. Hesapları listele');
   console.log('8. Hesap durumunu değiştir (aktif/pasif)');
-  console.log('9. Çıkış\n');
+  console.log('9. 🚀 Bir kullanıcıyı toplu takip et');
+  console.log('10. Çıkış\n');
   
   const choice = await question('Seçiminiz: ');
   
@@ -217,6 +218,13 @@ async function main() {
       break;
       
     case '9':
+      const target = await question('Takip edilecek kullanıcı adı: ');
+      const { spawn } = await import('child_process');
+      const bf = spawn('bun', ['run', 'bulk-follow.js', target], { stdio: 'inherit' });
+      await new Promise(resolve => bf.on('close', resolve));
+      break;
+      
+    case '10':
       console.log('👋 Çıkılıyor...');
       rl.close();
       return;

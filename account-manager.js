@@ -127,38 +127,55 @@ class AccountManager {
   }
 
   async checkIfPolitical(twitterUsername) {
-    // Politik anahtar kelimeler (daha kapsamlı)
+    // Politik anahtar kelimeler
     const politicalKeywords = [
-      // Partiler
       'chp', 'akp', 'mhp', 'hdp', 'iyi parti', 'deva', 'gelecek', 'zafer',
       'cumhuriyet halk', 'adalet ve kalkınma', 'milliyetçi hareket',
-      
-      // Pozisyonlar
       'cumhurbaşkan', 'başbakan', 'milletvekil', 'bakan', 'vekil',
       'belediye başkan', 'genel başkan',
-      
-      // Terimler
       'siyaset', 'politika', 'seçim', 'oy', 'parti', 'iktidar',
       'tbmm', 'meclis', 'hükümet', 'muhalefet', 'koalisyon',
       'referandum', 'sandık', 'kampanya',
-      
-      // İsimler (sadece siyasi liderler)
       'kılıçdaroğlu', 'erdoğan', 'bahçeli', 'akşener', 'babacan',
       'davutoğlu', 'özdağ', 'demirtaş', 'yavaş', 'imamoğlu'
     ];
 
+    // Sadece çalışan RSS kaynakları (2025-2026 güncel)
+    const rssInstances = [
+      `https://nitter.perennialte.ch/${twitterUsername}/rss`,
+      `https://nitter.privacydev.net/${twitterUsername}/rss`,
+      `https://nitter.poast.org/${twitterUsername}/rss`,
+      `https://xcancel.com/${twitterUsername}/rss`,
+      `https://nitter.net/${twitterUsername}/rss`
+    ];
+
     try {
-      // RSS'den son tweetleri çek
       const Parser = (await import('rss-parser')).default;
       const parser = new Parser();
-      const feed = await parser.parseURL(`https://nitter.net/${twitterUsername}/rss`);
       
-      if (!feed.items || feed.items.length === 0) {
+      let feed = null;
+      for (const rssUrl of rssInstances) {
+        try {
+          feed = await Promise.race([
+            parser.parseURL(rssUrl),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('timeout')), 20000)
+            )
+          ]);
+          
+          if (feed && feed.items && feed.items.length > 0) {
+            break;
+          }
+        } catch (err) {
+          continue;
+        }
+      }
+      
+      if (!feed || !feed.items || feed.items.length === 0) {
         console.log(`⚠️  ${twitterUsername}: RSS bulunamadı, politik değil sayılıyor`);
         return false;
       }
 
-      // Son 10 tweet'i kontrol et
       let politicalCount = 0;
       const checkCount = Math.min(10, feed.items.length);
       
@@ -173,15 +190,13 @@ class AccountManager {
         }
       }
 
-      // %40'dan fazlası politik içerik içeriyorsa politik hesap
       const isPolitical = (politicalCount / checkCount) > 0.4;
-      
       console.log(`🔍 ${twitterUsername}: ${politicalCount}/${checkCount} politik tweet - ${isPolitical ? '❌ POLİTİK' : '✅ POLİTİK DEĞİL'}`);
       
       return isPolitical;
     } catch (error) {
       console.error(`⚠️  ${twitterUsername} kontrol edilemedi:`, error.message);
-      return false; // Hata durumunda politik değil say
+      return false;
     }
   }
 
@@ -211,13 +226,15 @@ class AccountManager {
       return null; // Zaten var, yeni ekleme
     }
 
-    // Politik mi kontrol et
+    // Politik mi kontrol et (Devre dışı bırakıldı - Kullanıcı isteği)
+    /*
     const isPolitical = await this.checkIfPolitical(twitterUsername);
     
     if (isPolitical) {
       console.log(`⚠️  ${twitterUsername} politik hesap, eklenmedi`);
       return null;
     }
+    */
 
     const newAccount = {
       twitterUsername: twitterUsername,
@@ -226,7 +243,7 @@ class AccountManager {
       prototurkCsrf: '',
       email: '',
       password: '',
-      isPolitical: false,
+      isPolitical: true, // Artık politik hesaplara izin veriyoruz
       enabled: true,
       createdAt: new Date().toISOString()
     };
@@ -363,13 +380,76 @@ class AccountManager {
 
   async getActiveAccounts() {
     const accounts = await this.loadAccounts();
-    return accounts.filter(acc => 
-      acc.enabled && 
-      !acc.isPolitical && 
-      acc.prototurkSession && 
+    return accounts.filter(acc =>
+      acc.enabled &&
+      acc.prototurkSession &&
       acc.prototurkCsrf
     );
   }
-}
+
+  async followUser(targetUsername, account) {
+    try {
+      const response = await axios.post(
+        `${this.prototurkBaseUrl}/api/users/${targetUsername}/follow`,
+        {},
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/${targetUsername}`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          }
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      // Zaten takip ediyorsa veya hata varsa
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message
+      };
+    }
+  }
+
+  async bulkFollow(targetUsername, batchSize = 10, delayMs = 1000) {
+    const activeAccounts = await this.getActiveAccounts();
+    console.log(`\n👥 ${activeAccounts.length} aktif hesapla @${targetUsername} takip edilecek...`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < activeAccounts.length; i += batchSize) {
+      const batch = activeAccounts.slice(i, i + batchSize);
+      const promises = batch.map(async (acc) => {
+        const res = await this.followUser(targetUsername, acc);
+        if (res.success) {
+          successCount++;
+          process.stdout.write('✅');
+        } else {
+          failCount++;
+          process.stdout.write('❌');
+        }
+      });
+
+      await Promise.all(promises);
+
+      if (i + batchSize < activeAccounts.length) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    console.log(`\n\n✅ Takip işlemi tamamlandı!`);
+    console.log(`📈 Başarılı: ${successCount}`);
+    console.log(`📉 Başarısız: ${failCount}`);
+
+    return { successCount, failCount };
+  }
+  }
+
 
 export default AccountManager;
