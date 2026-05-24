@@ -751,19 +751,17 @@ class TwitterToPrototurk {
       const meme = await this.getMeme();
       if (meme) {
         const uploadedUrl = await this.uploadImageToPrototurk(account, meme.buffer, meme.contentType);
-        // Upload API key döndürüyorsa onu kullan, yoksa URL'den key çıkar
         if (uploadedUrl) {
-          // Prototurk genellikle key döndürür: response.data.key
-          // Ama uploadImageToPrototurk methodu URL döndürüyor.
-          // URL içindeki son kısmı key olarak varsayalım veya methodu güncelleyelim.
-          imageKey = uploadedUrl.split('/').pop();
+          imageKey = uploadedUrl.split('/').pop(); // Sadece dosya adını kullan
         }
       }
     }
 
     try {
       const payload = {
-        comment: randomComment
+        post_id: postId,
+        comment: randomComment,
+        parent_id: 0
       };
 
       if (imageKey) {
@@ -817,14 +815,15 @@ class TwitterToPrototurk {
     ];
 
     const randomReply = replies[Math.floor(Math.random() * replies.length)];
+try {
+  const payload = {
+    post_id: postId,
+    comment: randomReply,
+    parent_id: commentId
+  };
 
-    try {
-      const payload = {
-        comment: randomReply,
-        parent_id: commentId
-      };
+  await axios.post(
 
-      await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         payload,
         {
