@@ -727,18 +727,21 @@ class TwitterToPrototurk {
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         {
-          yorum: randomComment
+          text: randomComment
         },
         {
           headers: {
             'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Accept-Language': 'en-US,en;q=0.9',
             'Content-Type': 'application/json',
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
             'Origin': this.prototurkBaseUrl,
             'Referer': `${this.prototurkBaseUrl}/${authorUsername}/post/${postId}`,
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'DNT': '1',
+            'Sec-GPC': '1'
           }
         }
       );
@@ -769,19 +772,22 @@ class TwitterToPrototurk {
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         {
-          yorum: randomReply,
+          text: randomReply,
           parent_id: commentId
         },
         {
           headers: {
             'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Accept-Language': 'en-US,en;q=0.9',
             'Content-Type': 'application/json',
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
             'Origin': this.prototurkBaseUrl,
             'Referer': `${this.prototurkBaseUrl}/${authorUsername}/post/${postId}`,
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'DNT': '1',
+            'Sec-GPC': '1'
           }
         }
       );
