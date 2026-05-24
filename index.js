@@ -687,6 +687,28 @@ class TwitterToPrototurk {
     }
   }
 
+  async getMeme() {
+    try {
+      const response = await axios.get('https://meme-api.com/gimme', { timeout: 10000 });
+      if (response.data && response.data.url) {
+        console.log(`   🖼️  Rastgele meme bulundu: ${response.data.title}`);
+        
+        // Resmi indir
+        const imageRes = await axios.get(response.data.url, { responseType: 'arraybuffer' });
+        const contentType = imageRes.headers['content-type'] || 'image/jpeg';
+        
+        return {
+          buffer: Buffer.from(imageRes.data),
+          contentType: contentType,
+          title: response.data.title
+        };
+      }
+    } catch (error) {
+      console.error('⚠️  Meme çekme hatası:', error.message);
+    }
+    return null;
+  }
+
   async commentOnPost(account, postId, authorUsername) {
     const comments = [
       "Harika bir paylaşım olmuş, teşekkürler!",
@@ -722,13 +744,35 @@ class TwitterToPrototurk {
     ];
 
     const randomComment = comments[Math.floor(Math.random() * comments.length)];
+    let imageKey = null;
+
+    // %30 ihtimalle meme ekle
+    if (Math.random() < 0.3) {
+      const meme = await this.getMeme();
+      if (meme) {
+        const uploadedUrl = await this.uploadImageToPrototurk(account, meme.buffer, meme.contentType);
+        // Upload API key döndürüyorsa onu kullan, yoksa URL'den key çıkar
+        if (uploadedUrl) {
+          // Prototurk genellikle key döndürür: response.data.key
+          // Ama uploadImageToPrototurk methodu URL döndürüyor.
+          // URL içindeki son kısmı key olarak varsayalım veya methodu güncelleyelim.
+          imageKey = uploadedUrl.split('/').pop();
+        }
+      }
+    }
 
     try {
+      const payload = {
+        comment: randomComment
+      };
+
+      if (imageKey) {
+        payload.image = imageKey;
+      }
+
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
-        {
-          text: randomComment
-        },
+        payload,
         {
           headers: {
             'Accept': '*/*',
@@ -745,7 +789,7 @@ class TwitterToPrototurk {
           }
         }
       );
-      return { success: true, comment: randomComment };
+      return { success: true, comment: randomComment, hasImage: !!imageKey };
     } catch (error) {
       console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.response?.data?.message || error.message);
       return { success: false };
@@ -772,7 +816,7 @@ class TwitterToPrototurk {
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         {
-          text: randomReply,
+          comment: randomReply,
           parent_id: commentId
         },
         {
