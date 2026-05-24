@@ -59,7 +59,7 @@ async function main() {
           console.log(`\n🔄 ${accounts.length} hesap ekleniyor...\n`);
           for (const acc of accounts) {
             await accountManager.addTwitterAccount(acc, true);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 10000));
           }
         } else if (accIdx >= 0 && accIdx < accounts.length) {
           await accountManager.addTwitterAccount(accounts[accIdx], true);
@@ -85,7 +85,7 @@ async function main() {
         
         for (const acc of accounts) {
           await accountManager.addTwitterAccount(acc, true);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 10000));
         }
         
         console.log('\n✅ Tüm hesaplar eklendi!');
@@ -146,7 +146,7 @@ async function main() {
       
       for (const acc of randomAccounts) {
         await accountManager.addTwitterAccount(acc, true);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
       
       console.log('\n✅ Rastgele hesaplar eklendi!');
@@ -171,7 +171,7 @@ async function main() {
           try {
             await accountManager.addTwitterAccount(acc, true);
             successCount++;
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 10000));
           } catch (error) {
             console.error(`❌ Hata: ${error.message}`);
             errorCount++;

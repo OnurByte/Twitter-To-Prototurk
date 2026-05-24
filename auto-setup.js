@@ -44,18 +44,34 @@ async function autoSetup() {
       console.log('='.repeat(60));
       
       // Hesabı ekle (politik kontrolü dahil)
-      const account = await accountManager.addTwitterAccount(username, true);
+      const result = await accountManager.addTwitterAccount(username, true);
       
-      if (account && account.prototurkSession) {
-        addedAccounts.push(account);
+      if (result && result.error === 'RATE_LIMITED') {
+        console.log(`\n⏳ [RATE LIMIT] Prototurk sınırı aşıldı! 60 saniye bekleniyor...\n`);
+        await new Promise(resolve => setTimeout(resolve, 60000));
+        
+        // Bir kez daha dene
+        console.log(`🔄 Tekrar deneniyor: @${username}`);
+        const retryResult = await accountManager.addTwitterAccount(username, true);
+        
+        if (retryResult && !retryResult.error && retryResult.prototurkSession) {
+          addedAccounts.push(retryResult);
+          successCount++;
+          console.log(`✅ ${username} başarıyla eklendi (retry)!`);
+        } else {
+          console.log(`⚠️  ${username} retry başarısız, sonrakine geçiliyor...`);
+        }
+      } else if (result && result.prototurkSession) {
+        addedAccounts.push(result);
         successCount++;
         console.log(`✅ ${username} başarıyla eklendi ve hazır!`);
       } else {
         console.log(`⚠️  ${username} eklenemedi, sonrakine geçiliyor...`);
       }
       
-      // Rate limiting
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Kayıtlar arası güvenli bekleme süresi (10 saniye)
+      console.log(`⏳ Sonraki işlem için 10 saniye bekleniyor...`);
+      await new Promise(resolve => setTimeout(resolve, 10000));
       
     } catch (error) {
       console.error(`❌ ${username} hatası:`, error.message);

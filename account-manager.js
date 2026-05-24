@@ -272,10 +272,15 @@ class AccountManager {
         await this.setupPrototurkProfile(twitterUsername, result.session, result.csrf);
         
       } else {
-        console.log(`⚠️  ${twitterUsername} için otomatik kayıt başarısız`);
+        console.log(`⚠️  ${twitterUsername} için otomatik kayıt başarısız:`, result.error?.error || result.error);
         // Yine de email/şifre kaydet, manuel kullanım için
         newAccount.email = email;
         newAccount.password = password;
+        
+        // Rate limit hatasını yukarı fırlatalım ki auto-setup bekleyebilsin
+        if (result.error?.code === 'RATE_LIMITED') {
+          return { error: 'RATE_LIMITED', account: newAccount };
+        }
       }
     }
 
@@ -320,7 +325,17 @@ class AccountManager {
         try {
           const result = await this.addTwitterAccount(username, autoRegister);
           
-          if (result === null) {
+          if (result && result.error === 'RATE_LIMITED') {
+            console.log(`\n⏳ [RATE LIMIT] Sınır aşıldı, 60 saniye bekleniyor...`);
+            await new Promise(resolve => setTimeout(resolve, 60000));
+            // Tekrar dene
+            const retryResult = await this.addTwitterAccount(username, autoRegister);
+            if (retryResult && !retryResult.error) {
+              results.success.push(username);
+            } else {
+              results.failed.push({ username, error: 'RATE_LIMITED after retry' });
+            }
+          } else if (result === null) {
             // Politik veya zaten var
             const accounts = await this.loadAccounts();
             const existing = accounts.find(acc => acc.twitterUsername === username);
