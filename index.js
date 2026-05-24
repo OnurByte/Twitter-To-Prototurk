@@ -688,12 +688,58 @@ class TwitterToPrototurk {
   }
 
   async getMeme() {
+    // Rastgele kaynak seç: %70 Meme API, %30 Türksigara (Veya tam tersi)
+    const useTurksigara = Math.random() < 0.4;
+
+    if (useTurksigara) {
+      try {
+        console.log(`   📡 türksigara.net üzerinden görsel aranıyor...`);
+        // Site ana sayfasını çek (veya bir kategori)
+        const response = await axios.get('https://türksigara.net', { 
+          headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0' },
+          timeout: 10000 
+        });
+        
+        const $ = cheerio.load(response.data);
+        const images = [];
+        
+        // Sitedeki görselleri bul (özellikle içerik görselleri)
+        $('img').each((i, el) => {
+          const src = $(el).attr('src');
+          if (src && (src.includes('.jpg') || src.includes('.png') || src.includes('.jpeg'))) {
+            // Tam URL değilse tamamla
+            const fullUrl = src.startsWith('http') ? src : `https://türksigara.net${src.startsWith('/') ? '' : '/'}${src}`;
+            // Küçük ikonları veya avatar benzeri şeyleri ele (opsiyonel)
+            if (!src.includes('logo') && !src.includes('avatar') && !src.includes('icon')) {
+              images.push(fullUrl);
+            }
+          }
+        });
+
+        if (images.length > 0) {
+          const randomImageUrl = images[Math.floor(Math.random() * images.length)];
+          console.log(`   🖼️  türksigara.net'ten görsel seçildi: ${randomImageUrl}`);
+          
+          const imageRes = await axios.get(randomImageUrl, { responseType: 'arraybuffer' });
+          const contentType = imageRes.headers['content-type'] || 'image/jpeg';
+          
+          return {
+            buffer: Buffer.from(imageRes.data),
+            contentType: contentType,
+            title: "türksigara.net görseli"
+          };
+        }
+      } catch (error) {
+        console.error('⚠️  türksigara.net çekme hatası:', error.message);
+      }
+    }
+
+    // Fallback veya %60 ihtimalle Meme API
     try {
       const response = await axios.get('https://meme-api.com/gimme', { timeout: 10000 });
       if (response.data && response.data.url) {
         console.log(`   🖼️  Rastgele meme bulundu: ${response.data.title}`);
         
-        // Resmi indir
         const imageRes = await axios.get(response.data.url, { responseType: 'arraybuffer' });
         const contentType = imageRes.headers['content-type'] || 'image/jpeg';
         
