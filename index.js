@@ -626,15 +626,18 @@ class TwitterToPrototurk {
     // Eski -> yeni sırasında işle
     const sortedItems = newItems.reverse();
 
-    // Tweet'leri paralel gönder (max 5 aynı anda)
-    const batchSize = 5;
+    // Tweet'leri paralel gönder (max 3 aynı anda - hızı düşürdük)
+    const batchSize = 3;
     
     for (let i = 0; i < sortedItems.length; i += batchSize) {
       const batch = sortedItems.slice(i, i + batchSize);
       
       await Promise.all(
-        batch.map(async (item) => {
+        batch.map(async (item, index) => {
           try {
+            // Batch içindeki işlemler arasına da kısa gecikme koy (daha insansı)
+            await new Promise(resolve => setTimeout(resolve, index * 2000));
+
             const content = this.cleanTweetContent(item.contentSnippet || item.description || item.title);
             const images = this.extractImagesFromContent(item.content || item.description || '', baseUrl);
             
@@ -653,9 +656,10 @@ class TwitterToPrototurk {
         })
       );
       
-      // Batch'ler arası kısa bekleme
+      // Batch'ler arası bekleme (hızı düşürmek için artırdık: 10 saniye)
       if (i + batchSize < sortedItems.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log(`⏳ [POSTING] Diğer tweetler için 10 saniye bekleniyor...`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
   }
@@ -1026,8 +1030,8 @@ try {
 
     console.log(`\n📊 [POSTING] ${accounts.length} hesap işlenecek...\n`);
 
-    // Paralel işleme için Promise.all kullan (max 10 hesap aynı anda)
-    const batchSize = 10;
+    // Paralel işleme için Promise.all kullan (max 5 hesap aynı anda - hızı düşürdük)
+    const batchSize = 5;
 
     for (let i = 0; i < accounts.length; i += batchSize) {
       const batch = accounts.slice(i, i + batchSize);
@@ -1124,9 +1128,9 @@ try {
           this.processInteractions()
         ]);
         
-        // Bir tur bittikten sonra çok kısa bir nefes al (sistem kaynakları için 1 saniye)
-        console.log('\n✨ Tur tamamlandı. Hiç beklemeden yeni tura geçiliyor...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Bir tur bittikten sonra nefes al (sistem ve sunucu sağlığı için 30 saniye)
+        console.log('\n✨ Tur tamamlandı. 30 saniye mola veriliyor...');
+        await new Promise(resolve => setTimeout(resolve, 30000));
       } catch (error) {
         console.error('❌ Ana döngüde hata:', error.message);
         // Hata durumunda 5 saniye bekle ki sürekli hata verip sistemi kitlemesin
