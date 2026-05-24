@@ -897,14 +897,14 @@ class TwitterToPrototurk {
       return;
     }
 
-    console.log(`\n📊 ${accounts.length} hesap işlenecek...\n`);
+    console.log(`\n📊 [POSTING] ${accounts.length} hesap işlenecek...\n`);
 
     // Paralel işleme için Promise.all kullan (max 10 hesap aynı anda)
     const batchSize = 10;
 
     for (let i = 0; i < accounts.length; i += batchSize) {
       const batch = accounts.slice(i, i + batchSize);
-      console.log(`\n🔄 Batch ${Math.floor(i / batchSize) + 1}: ${batch.length} hesap paralel işleniyor...\n`);
+      console.log(`\n🔄 [POSTING] Batch ${Math.floor(i / batchSize) + 1}: ${batch.length} hesap paralel işleniyor...\n`);
 
       await Promise.all(
         batch.map(async (account) => {
@@ -918,18 +918,24 @@ class TwitterToPrototurk {
 
       // Batch'ler arası kısa bekleme
       if (i + batchSize < accounts.length) {
-        console.log('\n⏳ Sonraki batch için 3 saniye bekleniyor...\n');
+        console.log('\n⏳ [POSTING] Sonraki batch için 3 saniye bekleniyor...\n');
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 
-    console.log('\n✅ Tüm hesaplar işlendi!\n');
+    console.log('\n✅ [POSTING] Tüm hesaplar işlendi!\n');
+  }
 
+  async processInteractions() {
+    console.log('\n🌟 [INTERACTION] Etkileşim turu başlatılıyor...');
+    
     // Rastgele etkileşimleri tetikle
     await this.performRandomInteractions();
-
+    
     // Otomatik botlar arası takipleşme
     await this.autoMutualFollow();
+    
+    console.log('\n✅ [INTERACTION] Etkileşim turu tamamlandı!\n');
   }
 
   async autoMutualFollow() {
@@ -978,13 +984,18 @@ class TwitterToPrototurk {
     console.log('ℹ️  Profil senkronizasyonu devre dışı (Nitter instance sorunları)\n');
     console.log('💡 Profilleri manuel olarak güncellemek için: bun run sync\n');
     
-    console.log('🔥 Kesintisiz döngü başlatıldı. 5 dk mola yok!\n');
+    console.log('🔥 Kesintisiz döngü başlatıldı. Postlar ve etkileşimler paralel çalışıyor!\n');
 
     // Sonsuz döngü (while true)
     while (true) {
       try {
         console.log(`\n⏰ ${new Date().toLocaleString('tr-TR')} - Yeni tur başlatılıyor...`);
-        await this.processNewTweets();
+        
+        // Post atma ve etkileşimleri AYNI ANDA başlat
+        await Promise.all([
+          this.processNewTweets(),
+          this.processInteractions()
+        ]);
         
         // Bir tur bittikten sonra çok kısa bir nefes al (sistem kaynakları için 1 saniye)
         console.log('\n✨ Tur tamamlandı. Hiç beklemeden yeni tura geçiliyor...');
