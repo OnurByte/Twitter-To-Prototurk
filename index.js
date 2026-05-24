@@ -825,10 +825,41 @@ class TwitterToPrototurk {
     }
 
     try {
+      // Tiptap JSON formatı (Resimlerin görünmesi için şart)
+      const contentJson = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: randomComment
+              }
+            ]
+          }
+        ]
+      };
+
+      // Eğer görsel varsa JSON'a da ekle
+      if (imageKey) {
+        // Tam URL'yi bulalım (imageKey sadece dosya adı olabilir)
+        const fullImageUrl = imageKey.startsWith('http') ? imageKey : `https://cdn.prototurk.com/posts/${postId}/${imageKey}`;
+        
+        contentJson.content.push({
+          type: "image",
+          attrs: {
+            src: fullImageUrl,
+            alt: "Yorum görseli",
+            title: null
+          }
+        });
+      }
+
       const payload = {
         post_id: postId,
         text: randomComment,
-        content: randomComment,
+        content: JSON.stringify(contentJson), // Tiptap JSON string olmalı bazen
         parent_id: 0
       };
 
@@ -945,47 +976,47 @@ try {
       if (posts.length === 0) return;
 
       // Hesapları karıştır
-      const shuffledAccounts = [...accounts].sort(() => 0.5 - Math.random()).slice(0, 40); // Her turda max 40 hesap etkileşim yapsın (daha fazla hesap)
+      const shuffledAccounts = [...accounts].sort(() => 0.5 - Math.random()).slice(0, 50); // Daha fazla hesap
 
       for (const account of shuffledAccounts) {
-        // Her hesap için rastgele 5-10 post seç (daha fazla post)
-        const targetCount = Math.floor(Math.random() * 6) + 5;
+        // Her hesap için rastgele 8-15 post seç (etkileşimi artırdık)
+        const targetCount = Math.floor(Math.random() * 8) + 8;
         const shuffledPosts = [...posts].sort(() => 0.5 - Math.random()).slice(0, targetCount);
 
         for (const post of shuffledPosts) {
           // Kendi postunu veya çok eski postu beğenme
           if (post.author?.username === account.prototurkUsername) continue;
 
-          // %80 ihtimalle beğen (çok yüksek etkileşim)
-          if (Math.random() < 0.8) {
+          // %95 ihtimalle beğen (neredeyse her şeyi beğen)
+          if (Math.random() < 0.95) {
             const success = await this.likePost(account, post.id);
             if (success) console.log(`   ❤️  @${account.twitterUsername} -> @${post.author?.username} postunu beğendi`);
           }
 
-          // %40 ihtimalle kaydet
-          if (Math.random() < 0.4) {
+          // %60 ihtimalle kaydet
+          if (Math.random() < 0.6) {
             const success = await this.bookmarkPost(account, post.id);
             if (success) console.log(`   🔖 @${account.twitterUsername} -> @${post.author?.username} postunu kaydetti`);
           }
 
-          // %20 ihtimalle takip et
-          if (Math.random() < 0.2) {
+          // %50 ihtimalle takip et
+          if (Math.random() < 0.5) {
             const res = await this.accountManager.followUser(post.author?.username, account);
             if (res.success) {
               console.log(`   👤 @${account.twitterUsername} -> @${post.author?.username} kullanıcısını takip etti`);
             }
           }
 
-          // %10 ihtimalle yorum yap (daha nadir ve değerli)
-          if (Math.random() < 0.1) {
+          // %30 ihtimalle yorum yap
+          if (Math.random() < 0.3) {
             const res = await this.commentOnPost(account, post.id, post.author?.username);
             if (res.success) {
               console.log(`   💬 @${account.twitterUsername} -> @${post.author?.username} postuna yorum yaptı: "${res.comment}"`);
             }
           }
 
-          // %5 ihtimalle var olan bir yoruma yanıt ver
-          if (Math.random() < 0.05) {
+          // %15 ihtimalle var olan bir yoruma yanıt ver
+          if (Math.random() < 0.15) {
             try {
               // Postun yorumlarını çek
               const postResponse = await axios.get(`${this.prototurkBaseUrl}/api/posts/${post.id}/comments`, {
