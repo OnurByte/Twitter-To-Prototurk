@@ -687,7 +687,7 @@ class TwitterToPrototurk {
     }
   }
 
-  async commentOnPost(account, postId) {
+  async commentOnPost(account, postId, authorUsername) {
     const comments = [
       "Harika bir paylaşım olmuş, teşekkürler!",
       "Çok faydalı bilgiler, elinize sağlık.",
@@ -727,27 +727,29 @@ class TwitterToPrototurk {
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         {
-          comment: randomComment
+          yorum: randomComment
         },
         {
           headers: {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Content-Type': 'application/json',
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
             'Origin': this.prototurkBaseUrl,
-            'Referer': `${this.prototurkBaseUrl}/`,
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
-            'Content-Type': 'application/json'
+            'Referer': `${this.prototurkBaseUrl}/${authorUsername}/post/${postId}`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
           }
         }
       );
       return { success: true, comment: randomComment };
     } catch (error) {
-      console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.response?.data?.message || error.message);
       return { success: false };
     }
   }
 
-  async replyToComment(account, postId, commentId) {
+  async replyToComment(account, postId, commentId, authorUsername) {
     const replies = [
       "Kesinlikle katılıyorum.",
       "Ben de aynı fikirdeyim.",
@@ -767,23 +769,25 @@ class TwitterToPrototurk {
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
         {
-          comment: randomReply,
+          yorum: randomReply,
           parent_id: commentId
         },
         {
           headers: {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Content-Type': 'application/json',
             'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
             'x-csrf-token': account.prototurkCsrf,
             'Origin': this.prototurkBaseUrl,
-            'Referer': `${this.prototurkBaseUrl}/`,
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
-            'Content-Type': 'application/json'
+            'Referer': `${this.prototurkBaseUrl}/${authorUsername}/post/${postId}`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
           }
         }
       );
       return { success: true, reply: randomReply };
     } catch (error) {
-      console.log(`      ❌ Yanıt hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.message);
+      console.log(`      ❌ Yanıt hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.response?.data?.message || error.message);
       return { success: false };
     }
   }
@@ -843,7 +847,7 @@ class TwitterToPrototurk {
 
           // %10 ihtimalle yorum yap (daha nadir ve değerli)
           if (Math.random() < 0.1) {
-            const res = await this.commentOnPost(account, post.id);
+            const res = await this.commentOnPost(account, post.id, post.author?.username);
             if (res.success) {
               console.log(`   💬 @${account.twitterUsername} -> @${post.author?.username} postuna yorum yaptı: "${res.comment}"`);
             }
@@ -864,7 +868,7 @@ class TwitterToPrototurk {
                   .sort(() => 0.5 - Math.random())[0];
                 
                 if (targetComment) {
-                  const replyRes = await this.replyToComment(account, post.id, targetComment.id);
+                  const replyRes = await this.replyToComment(account, post.id, targetComment.id, post.author?.username);
                   if (replyRes.success) {
                     console.log(`   🗨️  @${account.twitterUsername} -> @${targetComment.author?.username} kullanıcısının yorumuna yanıt verdi: "${replyRes.reply}"`);
                   }
