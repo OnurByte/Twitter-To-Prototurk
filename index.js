@@ -791,7 +791,13 @@ class TwitterToPrototurk {
       );
       return { success: true, comment: randomComment, hasImage: !!imageKey };
     } catch (error) {
-      console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.response?.data?.message || error.message);
+      console.log(`      ❌ Yorum hatası (@${account.twitterUsername}):`);
+      if (error.response) {
+        console.log(`         Hata Mesajı:`, JSON.stringify(error.response.data, null, 2));
+        console.log(`         Gönderilen Veri:`, JSON.stringify({ comment: randomComment, image: imageKey }, null, 2));
+      } else {
+        console.log(`         Hata:`, error.message);
+      }
       return { success: false };
     }
   }
@@ -813,12 +819,14 @@ class TwitterToPrototurk {
     const randomReply = replies[Math.floor(Math.random() * replies.length)];
 
     try {
+      const payload = {
+        comment: randomReply,
+        parent_id: commentId
+      };
+
       await axios.post(
         `${this.prototurkBaseUrl}/api/posts/${postId}/comments`,
-        {
-          comment: randomReply,
-          parent_id: commentId
-        },
+        payload,
         {
           headers: {
             'Accept': '*/*',
@@ -837,7 +845,13 @@ class TwitterToPrototurk {
       );
       return { success: true, reply: randomReply };
     } catch (error) {
-      console.log(`      ❌ Yanıt hatası (@${account.twitterUsername}):`, error.response?.data?.error || error.response?.data?.message || error.message);
+      console.log(`      ❌ Yanıt hatası (@${account.twitterUsername}):`);
+      if (error.response) {
+        console.log(`         Hata Mesajı:`, JSON.stringify(error.response.data, null, 2));
+        console.log(`         Gönderilen Veri:`, JSON.stringify({ comment: randomReply, parent_id: commentId }, null, 2));
+      } else {
+        console.log(`         Hata:`, error.message);
+      }
       return { success: false };
     }
   }
