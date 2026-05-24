@@ -626,8 +626,8 @@ class TwitterToPrototurk {
     // Eski -> yeni sırasında işle
     const sortedItems = newItems.reverse();
 
-    // Tweet'leri paralel gönder (max 3 aynı anda - hızı düşürdük)
-    const batchSize = 3;
+    // Tweet'leri paralel gönder (max 2 aynı anda - hızı iyice düşürdük)
+    const batchSize = 2;
     
     for (let i = 0; i < sortedItems.length; i += batchSize) {
       const batch = sortedItems.slice(i, i + batchSize);
@@ -635,8 +635,8 @@ class TwitterToPrototurk {
       await Promise.all(
         batch.map(async (item, index) => {
           try {
-            // Batch içindeki işlemler arasına da kısa gecikme koy (daha insansı)
-            await new Promise(resolve => setTimeout(resolve, index * 2000));
+            // Postlar arası ciddi gecikme (daha yavaş ve güvenli)
+            await new Promise(resolve => setTimeout(resolve, index * 5000));
 
             const content = this.cleanTweetContent(item.contentSnippet || item.description || item.title);
             const images = this.extractImagesFromContent(item.content || item.description || '', baseUrl);
@@ -656,10 +656,10 @@ class TwitterToPrototurk {
         })
       );
       
-      // Batch'ler arası bekleme (hızı düşürmek için artırdık: 10 saniye)
+      // Batch'ler arası bekleme (hızı düşürmek için 30 saniyeye çıkardık)
       if (i + batchSize < sortedItems.length) {
-        console.log(`⏳ [POSTING] Diğer tweetler için 10 saniye bekleniyor...`);
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        console.log(`⏳ [POSTING] Diğer postlar için 30 saniye bekleniyor...`);
+        await new Promise(resolve => setTimeout(resolve, 30000));
       }
     }
   }
@@ -813,8 +813,8 @@ class TwitterToPrototurk {
     const randomComment = comments[Math.floor(Math.random() * comments.length)];
     let imageKey = null;
 
-    // %70 ihtimalle meme ekle (daha fazla görsel)
-    if (Math.random() < 0.7) {
+    // %90 ihtimalle meme ekle (neredeyse her yorum fotoğraflı olsun)
+    if (Math.random() < 0.9) {
       const meme = await this.getMeme();
       if (meme) {
         const uploadedUrl = await this.uploadImageToPrototurk(account, meme.buffer, meme.contentType);
@@ -1077,8 +1077,8 @@ class TwitterToPrototurk {
 
     console.log(`\n📊 [POSTING] ${accounts.length} hesap işlenecek...\n`);
 
-    // Paralel işleme için Promise.all kullan (max 5 hesap aynı anda - hızı düşürdük)
-    const batchSize = 5;
+    // Paralel işleme için Promise.all kullan (max 2 hesap aynı anda - etkileşime odaklanmak için hızı çok düşürdük)
+    const batchSize = 2;
 
     for (let i = 0; i < accounts.length; i += batchSize) {
       const batch = accounts.slice(i, i + batchSize);
