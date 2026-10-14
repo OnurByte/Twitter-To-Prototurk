@@ -463,8 +463,99 @@ class AccountManager {
     console.log(`📉 Başarısız: ${failCount}`);
 
     return { successCount, failCount };
-  }
+    }
+
+    async getUserId(username, account) {
+    try {
+      const response = await axios.get(
+        `${this.prototurkBaseUrl}/api/users/${username}`,
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          }
+        }
+      );
+      return response.data.profile?.id;
+    } catch (error) {
+      return null;
+    }
   }
 
+  async ensureConversation(targetUsername, account) {
+    try {
+      // Önce var olan konuşmaları kontrol et
+      const listRes = await axios.get(
+        `${this.prototurkBaseUrl}/api/dm/conversations`,
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0'
+          }
+        }
+      );
+
+      const items = listRes.data.items || [];
+      const existing = items.find(c => c.otherUser?.username === targetUsername);
+      
+      if (existing) {
+        return existing.id;
+      }
+
+      // Yoksa yeni başlat (ID lazım)
+      const targetId = await this.getUserId(targetUsername, account);
+      if (!targetId) throw new Error('Target user ID not found');
+
+      const createRes = await axios.post(
+        `${this.prototurkBaseUrl}/api/dm/conversations`,
+        { username: targetUsername },
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return createRes.data.id || createRes.data.uuid;
+    } catch (error) {
+      throw new Error(`ensureConversation failed: ${error.response?.status} ${JSON.stringify(error.response?.data || error.message)}`);
+    }
+  }
+
+  async sendMessage(conversationId, message, account) {
+    try {
+      const response = await axios.post(
+        `${this.prototurkBaseUrl}/api/dm/conversations/${conversationId}/messages`,
+        { content: message },
+        {
+          headers: {
+            'Cookie': `pt_session=${account.prototurkSession}; pt_csrf=${account.prototurkCsrf}`,
+            'x-csrf-token': account.prototurkCsrf,
+            'Origin': this.prototurkBaseUrl,
+            'Referer': `${this.prototurkBaseUrl}/messages/${conversationId}`,
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:149.0) Gecko/20100101 Firefox/149.0',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data || error.message
+      };
+    }
+    }
+    }
 
 export default AccountManager;
